@@ -46,7 +46,7 @@ namespace Leopotam.Ecs {
     /// Interface for Run systems.
     /// </summary>
     public interface IEcsRunSystem : IEcsSystem {
-        void Run ();
+        void Run (double delta);
     }
 
 #if DEBUG
@@ -265,7 +265,7 @@ namespace Leopotam.Ecs {
         /// <summary>
         /// Processes all IEcsRunSystem systems.
         /// </summary>
-        public void Run () {
+        public void Run (double delta) {
 #if DEBUG
             if (!_initialized) { throw new Exception ($"[{Name ?? "NONAME"}] EcsSystems should be initialized before."); }
             if (_destroyed) { throw new Exception ("Cant touch after destroy."); }
@@ -273,7 +273,7 @@ namespace Leopotam.Ecs {
             for (int i = 0, iMax = _runSystems.Count; i < iMax; i++) {
                 var runItem = _runSystems.Items[i];
                 if (runItem.Active) {
-                    runItem.System.Run ();
+                    runItem.System.Run (delta);
                 }
 #if DEBUG
                 if (World.CheckForLeakedEntities (null)) {
@@ -368,7 +368,7 @@ namespace Leopotam.Ecs {
     sealed class RemoveOneFrame<T> : IEcsRunSystem where T : struct {
         readonly EcsFilter<T> _oneFrames = null;
 
-        void IEcsRunSystem.Run () {
+        void IEcsRunSystem.Run (double delta) {
             for (var idx = _oneFrames.GetEntitiesCount () - 1; idx >= 0; idx--) {
                 _oneFrames.GetEntity (idx).Del<T> ();
             }
