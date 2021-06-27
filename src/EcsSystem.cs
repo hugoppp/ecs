@@ -49,6 +49,13 @@ namespace Leopotam.Ecs {
         void Run (double delta);
     }
 
+    /// <summary>
+    /// Interface for Run systems.
+    /// </summary>
+    public interface IEcsRunFixedSystem : IEcsSystem {
+        void RunFixed (double delta);
+    }
+
 #if DEBUG
     /// <summary>
     /// Debug interface for systems events processing.
@@ -65,11 +72,12 @@ namespace Leopotam.Ecs {
     [Unity.IL2CPP.CompilerServices.Il2CppSetOption (Unity.IL2CPP.CompilerServices.Option.NullChecks, false)]
     [Unity.IL2CPP.CompilerServices.Il2CppSetOption (Unity.IL2CPP.CompilerServices.Option.ArrayBoundsChecks, false)]
 #endif
-    public sealed class EcsSystems : IEcsInitSystem, IEcsDestroySystem, IEcsRunSystem {
+    public sealed class EcsSystems : IEcsInitSystem, IEcsDestroySystem, IEcsRunSystem, IEcsRunFixedSystem {
         public readonly string Name;
         public readonly EcsWorld World;
         readonly EcsGrowList<IEcsSystem> _allSystems = new EcsGrowList<IEcsSystem> (64);
         readonly EcsGrowList<EcsSystemsRunItem> _runSystems = new EcsGrowList<EcsSystemsRunItem> (64);
+        readonly EcsGrowList<EcsSystemsRunFixedItem> _runFixedSystems = new EcsGrowList<EcsSystemsRunFixedItem> (64);
         readonly Dictionary<int, int> _namedRunSystems = new Dictionary<int, int> (64);
         readonly Dictionary<Type, object> _injections = new Dictionary<Type, object> (32);
         bool _injected;
@@ -120,7 +128,7 @@ namespace Leopotam.Ecs {
             if (!string.IsNullOrEmpty (namedRunSystem) && !(system is IEcsRunSystem)) { throw new Exception ("Cant name non-IEcsRunSystem."); }
 #endif
             _allSystems.Add (system);
-            if (system is IEcsRunSystem) {
+            if (system is IEcsRunSystem || system is IEcsRunFixedSystem) {
                 if (namedRunSystem == null && system is EcsSystems ecsSystems) {
                     namedRunSystem = ecsSystems.Name;
                 }
@@ -132,7 +140,10 @@ namespace Leopotam.Ecs {
 #endif
                     _namedRunSystems[namedRunSystem.GetHashCode ()] = _runSystems.Count;
                 }
-                _runSystems.Add (new EcsSystemsRunItem { Active = true, System = (IEcsRunSystem) system });
+                if (system is IEcsRunSystem)
+                    _runSystems.Add (new EcsSystemsRunItem { Active = true, System = (IEcsRunSystem) system });
+                if (system is IEcsRunFixedSystem)
+                    _runFixedSystems.Add (new EcsSystemsRunFixedItem() { Active = true, System = (IEcsRunFixedSystem) system });
             }
             return this;
         }
@@ -154,6 +165,18 @@ namespace Leopotam.Ecs {
         }
 
         /// <summary>
+        /// Sets IEcsRunFixedSystem active state.
+        /// </summary>
+        /// <param name="idx">Index of system.</param>
+        /// <param name="state">New state of system.</param>
+        public void SetRunFixedSystemState (int idx, bool state) {
+#if DEBUG
+            if (idx < 0 || idx >= _runFixedSystems.Count) { throw new Exception ("Invalid index"); }
+#endif
+            _runFixedSystems.Items[idx].Active = state;
+        }
+
+        /// <summary>
         /// Gets IEcsRunSystem active state.
         /// </summary>
         /// <param name="idx">Index of system.</param>
@@ -162,6 +185,17 @@ namespace Leopotam.Ecs {
             if (idx < 0 || idx >= _runSystems.Count) { throw new Exception ("Invalid index"); }
 #endif
             return _runSystems.Items[idx].Active;
+        }
+
+        /// <summary>
+        /// Gets IEcsRunFixedSystem active state.
+        /// </summary>
+        /// <param name="idx">Index of system.</param>
+        public bool GetRunFixedSystemState (int idx) {
+#if DEBUG
+            if (idx < 0 || idx >= _runFixedSystems.Count) { throw new Exception ("Invalid index"); }
+#endif
+            return _runFixedSystems.Items[idx].Active;
         }
 
         /// <summary>
@@ -176,6 +210,13 @@ namespace Leopotam.Ecs {
         /// </summary>
         public EcsGrowList<EcsSystemsRunItem> GetRunSystems () {
             return _runSystems;
+        }
+
+        /// <summary>
+        /// Gets all run systems. Important: Don't change collection!
+        /// </summary>
+        public EcsGrowList<EcsSystemsRunFixedItem> GetRunFixedSystems () {
+            return _runFixedSystems;
         }
 
         /// <summary>
@@ -284,6 +325,27 @@ namespace Leopotam.Ecs {
         }
 
         /// <summary>
+        /// Processes all IEcsRunFixedSystem systems.
+        /// </summary>
+        public void RunFixed (double delta) {
+#if DEBUG
+            if (!_initialized) { throw new Exception ($"[{Name ?? "NONAME"}] EcsSystems should be initialized before."); }
+            if (_destroyed) { throw new Exception ("Cant touch after destroy."); }
+#endif
+            for (int i = 0, iMax = _runFixedSystems.Count; i < iMax; i++) {
+                var runItem = _runFixedSystems.Items[i];
+                if (runItem.Active) {
+                    runItem.System.RunFixed (delta);
+                }
+#if DEBUG
+                if (World.CheckForLeakedEntities (null)) {
+                    throw new Exception ($"Empty entity detected, possible memory leak in {_runSystems.Items[i].GetType ().Name}.Run ()");
+                }
+#endif
+            }
+        }
+
+        /// <summary>
         /// Destroys registered data.
         /// </summary>
         public void Destroy () {
@@ -381,5 +443,13 @@ namespace Leopotam.Ecs {
     public sealed class EcsSystemsRunItem {
         public bool Active;
         public IEcsRunSystem System;
+    }
+
+    /// <summary>
+    /// IEcsRunFixedSystem instance with active state.
+    /// </summary>
+    public sealed class EcsSystemsRunFixedItem {
+        public bool Active;
+        public IEcsRunFixedSystem System;
     }
 }
